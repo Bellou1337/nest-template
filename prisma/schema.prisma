@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+enum Role {
+    USER
+    ADMIN
+}
+
+enum AuthProvider {
+    YANDEX
+    TELEGRAM
+    GOOGLE
+    GITHUB
+    EMAIL
+}
+
+model User {
+    id String @id @default(uuid())
+    email String @unique
+    name String
+    password String
+    avatar String?
+    role Role @default(USER)
+    authProvider AuthProvider @default(EMAIL)
+    isTwoFactorEnabled Boolean @default(false)
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    oauthProviders OAuthProvider[]
+
+    @@map("Users")
+    @@index([email], name: "idx_user_email")
+}
+
+model OAuthProvider {
+    id String @id @default(uuid())
+    userId String @map("user_id")
+    provider String // 'yandex, 'telegram'...
+    providerId String @map("provider_id")
+    createdAt DateTime @default(now())
+
+    user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+    @@unique([provider, providerId])
+    @@map("OAuthProviders")
+    @@index([userId], name: "idx_oauth_user_id")
+}
