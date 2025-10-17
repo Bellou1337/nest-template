@@ -6,5 +6,6 @@ export type AuthResponse = {
     name: string;
     role: string;
     avatar: string | null;
+    authProvider: string;
   };
 };

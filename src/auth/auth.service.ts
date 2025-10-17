@@ -19,6 +19,10 @@ import { PrismaService } from 'src/prisma/prisma.service';
 import { generateRandomPassword } from 'src/shared/utils/password.utils';
 import { Logger } from '@nestjs/common';
 import type { AuthResponse } from './types/auth.types';
+import { TelegramLoginDto } from './dto/telegram-login.dto';
+import { createHash, createHmac } from 'crypto';
+import { generateRandomEmail } from 'src/shared/utils/email.utils';
+import { User } from 'src/users/types/user.types';
 
 @Injectable()
 export class AuthService {
@@ -305,6 +309,151 @@ export class AuthService {
       const duration = Date.now() - startTime;
       Logger.error(
         `Error in yandexLogin method {duration: ${duration}ms}`,
+        error as Error,
+        'AuthService',
+      );
+      throw new InternalServerErrorException(`server error: ${error as Error}`);
+    }
+  }
+
+  private verifyTelegramHash(data: TelegramLoginDto): boolean {
+    const startTime = Date.now();
+
+    Logger.log(
+      `verifyTelegramHash method start {telegramData: ${JSON.stringify(data)}}`,
+      'AuthService',
+    );
+
+    try {
+      const { hash, ...payload } = data;
+
+      const dataCheckString = Object.keys(payload)
+        .sort()
+        .map((key) => `${key}=${payload[key]}`)
+        .join('\n');
+
+      const secretKey = createHash('sha256')
+        .update(this.configService.get<string>('BOT_TOKEN')!)
+        .digest();
+
+      const computedHash = createHmac('sha256', secretKey)
+        .update(dataCheckString)
+        .digest('hex');
+
+      const duration = Date.now() - startTime;
+
+      Logger.log(
+        `Completed verifyTelegramHash method {telegramData: ${JSON.stringify(data)}, duration: ${duration}ms}`,
+        'AuthService',
+      );
+
+      return computedHash === hash;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      Logger.error(
+        `Error in verifyTelegramHash method {telegramData: ${JSON.stringify(data)}, duration: ${duration}ms}`,
+        error as Error,
+        'AuthService',
+      );
+      throw new InternalServerErrorException(`server error: ${error as Error}`);
+    }
+  }
+
+  async telegramLogin(
+    data: TelegramLoginDto,
+    response: Response,
+  ): Promise<AuthResponse> {
+    const startTime = Date.now();
+
+    Logger.log(
+      `telegramLogin method start {telegramData: ${JSON.stringify(data)}}`,
+      'AuthService',
+    );
+
+    try {
+      if (!this.verifyTelegramHash(data)) {
+        throw new UnauthorizedException('Invalid Telegram data');
+      }
+
+      const oauthProvider = await this.prismaService.oAuthProvider.findUnique({
+        where: {
+          provider_providerId: {
+            provider: 'TELEGRAM',
+            providerId: data.id.toString(),
+          },
+        },
+        include: {
+          user: true,
+        },
+      });
+
+      let user;
+
+      if (!oauthProvider) {
+        user = await this.prismaService.user.create({
+          data: {
+            email: await generateRandomEmail(),
+            name: data.username,
+            password: await generateRandomPassword(),
+            avatar: data.photo_url,
+            authProvider: 'TELEGRAM',
+          },
+        });
+
+        await this.prismaService.oAuthProvider.create({
+          data: {
+            userId: user.id,
+            provider: 'telegram',
+            providerId: data.id.toString(),
+          },
+        });
+      } else {
+        user = oauthProvider.user;
+      }
+
+      const accessToken = await this.jwtService.generateAccessToken(user.id);
+      const refreshToken = await this.jwtService.generateRefreshToken(user.id);
+
+      response.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'strict',
+        maxAge: this.configService.get<number>(
+          'ACCESS_TOKEN_EXPIRATION_COOKIE',
+        ),
+      });
+
+      response.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'strict',
+        maxAge: this.configService.get<number>(
+          'REFRESH_TOKEN_EXPIRATION_COOKIE',
+        ),
+      });
+
+      const duration = Date.now() - startTime;
+
+      Logger.log(
+        `Completed telegramLogin method {telegramData: ${JSON.stringify(data)}, duration: ${duration}ms}`,
+        'AuthService',
+      );
+
+      return {
+        message: 'Telegram login successful',
+        data: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          avatar: user.avatar,
+          authProvider: user.authProvider,
+        },
+      } as AuthResponse;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      Logger.error(
+        `Error in telegramLogin method {telegramData: ${JSON.stringify(data)}, duration: ${duration}ms}`,
         error as Error,
         'AuthService',
       );

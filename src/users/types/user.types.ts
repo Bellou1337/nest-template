@@ -10,4 +10,5 @@ export type User = {
   name: string;
   avatar: string | null;
   role: string;
+  authProvider: string;
 };

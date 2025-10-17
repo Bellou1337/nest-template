@@ -44,6 +44,7 @@ export class UsersService {
           name: true,
           role: true,
           avatar: true,
+          authProvider: true,
         },
       });
     } catch (error) {
@@ -143,6 +144,7 @@ export class UsersService {
           name: true,
           role: true,
           avatar: true,
+          authProvider: true,
         },
       });
     } catch (error) {

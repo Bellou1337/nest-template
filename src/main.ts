@@ -31,6 +31,8 @@ async function bootstrap() {
     prefix: '/uploads/',
   });
 
+  app.useStaticAssets(join(__dirname, '..', 'public'));
+
   const configService = app.get(ConfigService);
   const config = new DocumentBuilder()
     .setTitle('API')

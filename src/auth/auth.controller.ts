@@ -7,6 +7,7 @@ import {
   Req,
   Get,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { ApiOperation, ApiBody } from '@nestjs/swagger';
@@ -14,6 +15,7 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { YandexAuthGuard } from './guards/yandex-auth.guard';
 import type { Response, Request } from 'express';
+import { TelegramLoginDto } from './dto/telegram-login.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -69,5 +71,17 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response,
   ) {
     return this.authService.yandexLogin(req, response);
+  }
+
+  @Get('telegram/callback')
+  @ApiOperation({
+    summary: 'Login with Telegram',
+  })
+  @ApiBody({ type: TelegramLoginDto })
+  async telegramLogin(
+    @Query() dto: TelegramLoginDto,
+    @Res({ passthrough: true }) response: Response,
+  ) {
+    return this.authService.telegramLogin(dto, response);
   }
 }
