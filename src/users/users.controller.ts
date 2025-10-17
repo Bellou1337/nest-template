@@ -24,6 +24,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { ImageTypeValidator } from 'src/shared/validators/image-type.validator';
+import { Roles } from 'src/shared/decorators/roles.decorator';
+import { RolesGuard } from 'src/shared/guards/roles.guard';
 
 @Controller('users')
 export class UsersController {
@@ -43,17 +45,19 @@ export class UsersController {
   @ApiOperation({
     summary: 'Get user by ID',
   })
-  @UseGuards(AuthGuard)
+  @Roles('ADMIN')
+  @UseGuards(AuthGuard, RolesGuard)
   @ApiCookieAuth()
   getUserById(@Param('id') id: string) {
     return this.usersService.findById(id);
   }
 
   @Get(':email')
+  @Roles('ADMIN')
   @ApiOperation({
     summary: 'Get user by email',
   })
-  @UseGuards(AuthGuard)
+  @UseGuards(AuthGuard, RolesGuard)
   @ApiCookieAuth()
   getUserByEmail(@Param('email') email: string) {
     return this.usersService.findByEmail(email);
