@@ -3,6 +3,7 @@ import {
   ConflictException,
   NotFoundException,
   UnauthorizedException,
+  InternalServerErrorException,
 } from '@nestjs/common';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -16,6 +17,7 @@ import { Response, Request } from 'express';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { generateRandomPassword } from 'src/shared/utils/password.utils';
+import { Logger } from '@nestjs/common';
 import type { AuthResponse } from './types/auth.types';
 
 @Injectable()
@@ -28,87 +30,136 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponse> {
+    const startTime = Date.now();
+
     const { email, password } = dto;
 
-    const existingUser = await this.usersService.findByEmail(email);
+    Logger.log(`register method start: {userEmail: ${email}}`, 'AuthService');
 
-    if (existingUser) {
-      throw new ConflictException('User already exists');
+    try {
+      const existingUser = await this.usersService.findByEmail(email);
+
+      if (existingUser) {
+        throw new ConflictException('User already exists');
+      }
+
+      const hashedPassword = await hashPassword(password);
+
+      dto.password = hashedPassword;
+
+      const user = await this.usersService.create(dto);
+
+      const duration = Date.now() - startTime;
+
+      Logger.log(
+        `Completed register method {userEmail: ${email}, duration: ${duration}ms}`,
+        'AuthService',
+      );
+
+      return {
+        message: 'User registered successfully',
+        data: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          avatar: user.avatar,
+        },
+      } as AuthResponse;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      Logger.error(
+        `Error in register method {userEmail: ${email}, duration: ${duration}ms}`,
+        error as Error,
+        'AuthService',
+      );
+      throw new InternalServerErrorException(`server error: ${error as Error}`);
     }
-
-    const hashedPassword = await hashPassword(password);
-
-    dto.password = hashedPassword;
-
-    const user = await this.usersService.create(dto);
-
-    return {
-      message: 'User registered successfully',
-      data: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        avatar: user.avatar,
-      },
-    } as AuthResponse;
   }
 
   async login(dto: LoginDto, response: Response): Promise<AuthResponse> {
+    const startTime = Date.now();
+
     const { email, password } = dto;
 
-    const user = await this.usersService.findAllData({ email });
+    Logger.log(`login method start: {userEmail: ${email}}`, 'AuthService');
+    try {
+      const user = await this.usersService.findAllData({ email });
 
-    if (!user) {
-      throw new NotFoundException('User not found');
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      const isPasswordValid = await comparePasswords(password, user.password);
+
+      if (!isPasswordValid) {
+        throw new UnauthorizedException('Invalid credentials');
+      }
+
+      const accessToken = await this.jwtService.generateAccessToken(user.id);
+      const refreshToken = await this.jwtService.generateRefreshToken(user.id);
+
+      response.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'strict',
+        maxAge: this.configService.get<number>(
+          'ACCESS_TOKEN_EXPIRATION_COOKIE',
+        ),
+      });
+
+      response.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'strict',
+        maxAge: this.configService.get<number>(
+          'REFRESH_TOKEN_EXPIRATION_COOKIE',
+        ),
+      });
+
+      const duration = Date.now() - startTime;
+
+      Logger.log(
+        `Completed login method {userEmail: ${email}, duration: ${duration}ms}`,
+        'AuthService',
+      );
+
+      return {
+        message: 'Login successful',
+        data: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          avatar: user.avatar,
+        },
+      } as AuthResponse;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      Logger.error(
+        `Error in login method {userEmail: ${email}, duration: ${duration}ms}`,
+        error as Error,
+        'AuthService',
+      );
+      throw new InternalServerErrorException(`server error: ${error as Error}`);
     }
-
-    const isPasswordValid = await comparePasswords(password, user.password);
-
-    if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
-    }
-
-    const accessToken = await this.jwtService.generateAccessToken(user.id);
-    const refreshToken = await this.jwtService.generateRefreshToken(user.id);
-
-    response.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: this.configService.get<number>('ACCESS_TOKEN_EXPIRATION_COOKIE'),
-    });
-
-    response.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: this.configService.get<number>('REFRESH_TOKEN_EXPIRATION_COOKIE'),
-    });
-
-    return {
-      message: 'Login successful',
-      data: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        avatar: user.avatar,
-      },
-    } as AuthResponse;
   }
 
   async refresh(
     request: Request,
     response: Response,
   ): Promise<Record<string, string>> {
-    const refreshToken = request.cookies['refreshToken'];
+    const startTime = Date.now();
 
-    if (!refreshToken) {
-      throw new UnauthorizedException('No refresh token provided');
-    }
+    Logger.log(`refresh method start`, 'AuthService');
 
     try {
+      const refreshToken = request.cookies['refreshToken'];
+
+      if (!refreshToken) {
+        throw new UnauthorizedException('No refresh token provided');
+      }
+
       const userId = await this.jwtService.verifyRefreshToken(refreshToken);
 
       const user = await this.usersService.findById(userId);
@@ -128,98 +179,136 @@ export class AuthService {
         ),
       });
 
+      const duration = Date.now() - startTime;
+
+      Logger.log(
+        `Completed refresh method {duration: ${duration}ms}`,
+        'AuthService',
+      );
+
       return {
         message: 'Access token refreshed successfully',
       };
     } catch (error) {
-      throw new UnauthorizedException('Invalid or expired refresh token');
+      const duration = Date.now() - startTime;
+      Logger.error(
+        `Error in refresh method {duration: ${duration}ms}`,
+        error as Error,
+        'AuthService',
+      );
+      throw new InternalServerErrorException(`server error: ${error as Error}`);
     }
   }
 
   async yandexLogin(req: Request, response: Response): Promise<AuthResponse> {
-    if (!req.user) {
-      throw new UnauthorizedException('Yandex authentication failed');
-    }
+    const startTime = Date.now();
 
-    const { provider, providerId, email, name } = req.user;
+    Logger.log(`yandexLogin method start`, 'AuthService');
 
-    if (!provider || !providerId || !name || !email) {
-      throw new UnauthorizedException('Invalid OAuth data');
-    }
-
-    const oauthProvider = await this.prismaService.oAuthProvider.findUnique({
-      where: {
-        provider_providerId: {
-          provider,
-          providerId,
-        },
-      },
-      include: {
-        user: true,
-      },
-    });
-
-    let user;
-
-    if (!oauthProvider) {
-      user = await this.usersService.findByEmail(email);
-
-      if (!user) {
-        user = await this.prismaService.user.create({
-          data: {
-            email,
-            name,
-            password: await generateRandomPassword(),
-            authProvider: 'YANDEX',
-          },
-        });
-
-        await this.prismaService.oAuthProvider.create({
-          data: {
-            userId: user.id,
-            provider,
-            providerId,
-          },
-        });
-      } else {
-        await this.prismaService.oAuthProvider.create({
-          data: {
-            userId: user.id,
-            provider,
-            providerId,
-          },
-        });
+    try {
+      if (!req.user) {
+        throw new UnauthorizedException('Yandex authentication failed');
       }
-    } else {
-      user = oauthProvider.user;
+
+      const { provider, providerId, email, name } = req.user;
+
+      if (!provider || !providerId || !name || !email) {
+        throw new UnauthorizedException('Invalid OAuth data');
+      }
+
+      const oauthProvider = await this.prismaService.oAuthProvider.findUnique({
+        where: {
+          provider_providerId: {
+            provider,
+            providerId,
+          },
+        },
+        include: {
+          user: true,
+        },
+      });
+
+      let user;
+
+      if (!oauthProvider) {
+        user = await this.usersService.findByEmail(email);
+
+        if (!user) {
+          user = await this.prismaService.user.create({
+            data: {
+              email,
+              name,
+              password: await generateRandomPassword(),
+              authProvider: 'YANDEX',
+            },
+          });
+
+          await this.prismaService.oAuthProvider.create({
+            data: {
+              userId: user.id,
+              provider,
+              providerId,
+            },
+          });
+        } else {
+          await this.prismaService.oAuthProvider.create({
+            data: {
+              userId: user.id,
+              provider,
+              providerId,
+            },
+          });
+        }
+      } else {
+        user = oauthProvider.user;
+      }
+
+      const accessToken = await this.jwtService.generateAccessToken(user.id);
+      const refreshToken = await this.jwtService.generateRefreshToken(user.id);
+
+      response.cookie('accessToken', accessToken, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'strict',
+        maxAge: this.configService.get<number>(
+          'ACCESS_TOKEN_EXPIRATION_COOKIE',
+        ),
+      });
+
+      response.cookie('refreshToken', refreshToken, {
+        httpOnly: true,
+        secure: this.configService.get('NODE_ENV') === 'production',
+        sameSite: 'strict',
+        maxAge: this.configService.get<number>(
+          'REFRESH_TOKEN_EXPIRATION_COOKIE',
+        ),
+      });
+
+      const duration = Date.now() - startTime;
+
+      Logger.log(
+        `Completed yandexLogin method {duration: ${duration}ms}`,
+        'AuthService',
+      );
+
+      return {
+        message: 'Yandex login successful',
+        data: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          avatar: user.avatar,
+        },
+      } as AuthResponse;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      Logger.error(
+        `Error in yandexLogin method {duration: ${duration}ms}`,
+        error as Error,
+        'AuthService',
+      );
+      throw new InternalServerErrorException(`server error: ${error as Error}`);
     }
-
-    const accessToken = await this.jwtService.generateAccessToken(user.id);
-    const refreshToken = await this.jwtService.generateRefreshToken(user.id);
-
-    response.cookie('accessToken', accessToken, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: this.configService.get<number>('ACCESS_TOKEN_EXPIRATION_COOKIE'),
-    });
-
-    response.cookie('refreshToken', refreshToken, {
-      httpOnly: true,
-      secure: this.configService.get('NODE_ENV') === 'production',
-      sameSite: 'strict',
-      maxAge: this.configService.get<number>('REFRESH_TOKEN_EXPIRATION_COOKIE'),
-    });
-
-    return {
-      message: 'Yandex login successful',
-      data: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role,
-        avatar: user.avatar,
-      },
-    } as AuthResponse;
   }
 }
