@@ -5,6 +5,7 @@ import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { JwtModule } from './jwt/jwt.module';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 @Module({
   imports: [
@@ -16,6 +17,14 @@ import { JwtModule } from './jwt/jwt.module';
     UsersModule,
     PrismaModule,
     JwtModule,
+    ThrottlerModule.forRoot({
+      throttlers: [
+        {
+          ttl: 60,
+          limit: 100,
+        },
+      ],
+    }),
   ],
   controllers: [],
   providers: [],

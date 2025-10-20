@@ -1,0 +1,10 @@
+services:
+  nginx:
+    image: nginx
+    ports:
+      - '80:80'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./uploads/avatars/:/uploads/avatars/:ro
+      - ./nginx/logs:/var/log/nginx
+    restart: always
