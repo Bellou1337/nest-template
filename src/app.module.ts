@@ -6,6 +6,8 @@ import { UsersModule } from './users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { JwtModule } from './jwt/jwt.module';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { PrometheusService } from './prometheus/prometheus.service';
+import { PrometheusController } from './prometheus/prometheus.controller';
 
 @Module({
   imports: [
@@ -26,7 +28,7 @@ import { ThrottlerModule } from '@nestjs/throttler';
       ],
     }),
   ],
-  controllers: [],
-  providers: [],
+  controllers: [PrometheusController],
+  providers: [PrometheusService],
 })
 export class AppModule {}

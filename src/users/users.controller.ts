@@ -21,8 +21,6 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { UpdateUsernameDto } from './dto/update-username.dto';
 import { ApiCookieAuth } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
 import { ImageTypeValidator } from 'src/shared/validators/image-type.validator';
 import { Roles } from 'src/shared/decorators/roles.decorator';
 import { RolesGuard } from 'src/shared/guards/roles.guard';

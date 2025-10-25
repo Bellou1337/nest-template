@@ -327,7 +327,7 @@ export class UsersService {
         } catch (error) {}
       }
 
-      const avatarDbPath = `/uploads/avatars/${fileName}`;
+      const avatarDbPath = `/uploads/${fileName}`;
 
       const updated = await this.prisma.user.update({
         where: { id: userId },
